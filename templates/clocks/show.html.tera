@@ -1,0 +1,12 @@
+{% extends "base" %}
+
+{% block content %}
+    <h1>Clock {{ clock.code }}</h1>
+    <table>
+        {% for timer in clock.remaining_ms %}
+        <tr>
+          <td>{{ timer | countdown }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+{% endblock content %}

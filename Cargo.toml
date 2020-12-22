@@ -1,0 +1,19 @@
+[package]
+name = "multiclock"
+version = "0.1.0"
+authors = ["Paul A. Jungwirth <pj@illuminatedcomputing.com>"]
+edition = "2018"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rocket = "0.4.6"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tera = "1"
+
+[dependencies.rocket_contrib]
+default-features = false
+features = ["tera_templates"]

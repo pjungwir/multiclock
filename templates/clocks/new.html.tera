@@ -1,0 +1,14 @@
+{% extends "base" %}
+
+{% block content %}
+    <h1>New Clock</h1>
+    <form action="/clocks" method="post">
+        <label>Player Count
+          <input type="text" name="player_count" value="{{ player_count }}">
+        </label>
+        <label>Allowed Seconds
+          <input type="text" name="allowed_seconds" value="{{ allowed_seconds }}">
+        </label>
+        <input type="submit" value="Make Clock">
+    </form>
+{% endblock content %}
