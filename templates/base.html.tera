@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Multiclock</title>
+    {% block head %}{% endblock head %}
   </head>
   <body>
     {% block content %}{% endblock content %}

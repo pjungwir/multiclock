@@ -8,13 +8,21 @@ extern crate rocket_contrib;
 use std::time::{Duration, Instant, SystemTime};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::net::TcpListener;
+use std::thread::{spawn, sleep};
+use regex::Regex;
+use lazy_static::lazy_static;
 use rocket::State;
 use rocket::http::RawStr;
 use rocket::request::Form;
 use rocket::request::FromFormValue;
 use rocket::response::Redirect;
+use rocket_contrib::json::Json;
 use rocket_contrib::templates::{Template, Engines};
 use rocket_contrib::templates::tera::{self, Value, to_value};
+use tungstenite::{Message};
+use tungstenite::server::{accept, accept_hdr};
+use tungstenite::handshake::server::{Request, Response};
 
 #[derive(Debug)]
 struct PlayerCount(u32);
@@ -58,12 +66,13 @@ struct Clock {
   allowed_seconds: AllowedSeconds,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct RunningClock {
   code: String,
   started: bool,
+  finished: bool,
   remaining_ms: Vec<u64>,
-  current_player: u32,
+  current_player: usize,
   started_at: SystemTime,
 }
 
@@ -91,6 +100,7 @@ fn create(clocks: State<ClockList>, params: Form<Clock>) -> Redirect {
   let clock = RunningClock {
     code: code.clone(),
     started: false,
+    finished: false,
     remaining_ms: vec![*params.allowed_seconds as u64 * 1000; *params.player_count as usize],
     current_player: 0,
     started_at: SystemTime::now(), // not really, but it's nice not using an Option here
@@ -100,22 +110,28 @@ fn create(clocks: State<ClockList>, params: Form<Clock>) -> Redirect {
 }
 
 #[post("/clocks/<code>/hit")]
-fn hit(clocks: State<ClockList>, code: String) -> String {
+fn hit(clocks: State<ClockList>, code: String) -> Json<RunningClock> {
   let mut clocks = clocks.clocks.lock().unwrap();
   let mut clock = &mut clocks[code.parse::<usize>().unwrap()];
   if clock.started {
-    let t = SystemTime::now();
-    // Just fail if time went backwards:
-    let time_passed = t.duration_since(clock.started_at).unwrap();
-    clock.remaining_ms[clock.current_player as usize] -= time_passed.as_millis() as u64;
-    clock.started_at = t;
-    clock.current_player = (clock.current_player + 1) % (clock.remaining_ms.len() as u32);
+    if !clock.finished {
+      let t = SystemTime::now();
+      // Just fail if time went backwards:
+      let elapsed = t.duration_since(clock.started_at).unwrap();
+      if clock.remaining_ms[clock.current_player] > elapsed.as_millis() as u64 {
+        clock.remaining_ms[clock.current_player] -= elapsed.as_millis() as u64;
+        clock.started_at = t;
+        clock.current_player = (clock.current_player + 1) % clock.remaining_ms.len();
+      } else {
+        clock.remaining_ms[clock.current_player] = 0;
+        clock.finished = true;
+      }
+    }
   } else {
     clock.started = true;
     clock.started_at = SystemTime::now();
   }
-  // clock.hit();
-  "okay".to_string()  // TODO: Return the new clock info as json
+  Json(clock.clone())
 }
 
 #[derive(Serialize)]
@@ -149,14 +165,79 @@ fn clock(clocks: State<ClockList>, code: String) -> Template {
   Template::render("clocks/show", &context)
 }
 
+fn clock_as_json(clock: &RunningClock) -> String {
+  let t = SystemTime::now();
+  let mut mss = clock.remaining_ms.clone();
+  let mut finished = clock.finished;
+  if !finished {
+    if clock.started {
+      let elapsed = t.duration_since(clock.started_at).unwrap();
+      if mss[clock.current_player] > elapsed.as_millis() as u64 {
+        mss[clock.current_player] -= elapsed.as_millis() as u64;
+      } else {
+        mss[clock.current_player] = 0;
+        finished = true;
+      }
+    }
+  }
+  serde_json::to_string(&RunningClock {
+    code: clock.code.clone(),
+    started: clock.started,
+    finished: finished,
+    remaining_ms: mss,
+    current_player: clock.current_player,
+    started_at: clock.started_at,
+  }).unwrap()
+}
+
+fn current_clock(db: Arc<Mutex<Vec<RunningClock>>>, code: &str) -> String {
+  let pos = code.parse::<usize>().unwrap();
+  let cl = &db.lock().unwrap()[pos];
+  clock_as_json(cl)
+}
+
+fn extract_code_from_path(path: &str) -> Option<&str> {
+    lazy_static! {
+        static ref CLOCK_PATH: Regex = Regex::new(r"/clocks/(.+)").unwrap();
+    }
+    CLOCK_PATH.captures(path).and_then(|caps| {
+        caps.get(1).map(|code| code.as_str())
+    })
+}
+
 fn main() {
-    let templateFairing = Template::custom(|engines: &mut Engines| {
-      engines.tera.register_filter("countdown", countdown);
+    let db = Arc::new(Mutex::new(vec![]));
+    let db2 = db.clone();
+
+    let ws_server = TcpListener::bind("127.0.0.1:9001").unwrap();
+    spawn(move || {
+        for stream in ws_server.incoming() {
+            let db3 = db2.clone();
+            spawn(move || {
+                let mut path: String = "".to_string();
+                let mut ws = accept_hdr(stream.unwrap(), |req: &Request, resp: Response| {
+                    path = req.uri().to_string();
+                    Ok(resp)
+                }).unwrap();
+                // TODO: Log the path and the incoming IP
+                println!("Got a ws connection to {}", path);
+                loop {
+                    // TODO: parse the code from the path:
+                    let cl = current_clock(db3.clone(), extract_code_from_path(&path).unwrap());
+                    ws.write_message(Message::Text(cl)).unwrap();
+                    sleep(Duration::from_millis(500));
+                }
+            });
+        }
+    });
+
+    let template_fairing = Template::custom(|engines: &mut Engines| {
+        engines.tera.register_filter("countdown", countdown);
     });
 
     rocket::ignite().
         mount("/", routes![index, create, clock, hit]).
-        attach(templateFairing).
-        manage(ClockList { clocks: Arc::new(Mutex::new(vec![])) }).
+        attach(template_fairing).
+        manage(ClockList { clocks: db }).
         launch();
 }

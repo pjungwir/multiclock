@@ -1,11 +1,77 @@
 {% extends "base" %}
 
+{% block head %}
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script>
+$(function() {
+  var ms_to_timer = function(ms) {
+    var secs = ms / 1000;
+    if (secs < 10) {
+      return secs.toFixed(2);
+    } else {
+      var mins = Math.floor(secs / 60);
+      var hours = Math.floor(mins / 60);
+      mins -= 60*hours;
+      secs -= 3600*hours + 60*mins;
+      secs = Math.floor(secs);
+      return [
+        hours.toString().padStart(2, "0"),
+        mins.toString().padStart(2, "0"),
+        secs.toString().padStart(2, "0"),
+      ].join(":");
+    }
+  }
+
+  var handle_update = function(clock) {
+    console.log("handle_update", clock);
+    $.each($clocks.find("td"), function(i, td) {
+      if (clock.finished && i == clock.current_player) {
+        $(td).html("FLAG!!");
+        $button.attr('disabled', true);
+      } else {
+        $(td).html(ms_to_timer(clock.remaining_ms[i]));
+      }
+    });
+
+    if (clock.started) {
+      if (clock.finished) {
+        $button.html("Done");
+      } else {
+        $button.html("HIT");
+      }
+    } else {
+      $button.html("Start");
+    }
+  }
+
+  var ws = new WebSocket("ws://localhost:9001/clocks/{{ clock.code }}");
+  var $clocks = $("#clocks");
+  var $button = $("#button");
+  $button.on('click', function(event) {
+    $.ajax({
+      method: 'POST',
+      url: '/clocks/{{ clock.code }}/hit',
+      success: function(data, status, jqxhr) {
+        handle_update(data);
+      },
+    });
+  });
+  ws.onmessage = function(ev) {
+    var cl = JSON.parse(ev.data);
+    console.log(cl);
+    handle_update(cl);
+  };
+});
+</script>
+{% endblock head %}
+
 {% block content %}
     <h1>Clock {{ clock.code }}</h1>
-    <table>
+    <button id="button">Start</button>
+    <table id="clocks">
         {% for timer in clock.remaining_ms %}
         <tr>
-          <td>{{ timer | countdown }}</td>
+          <td>--:--:--</td>
         </tr>
         {% endfor %}
     </table>
