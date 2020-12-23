@@ -129,7 +129,7 @@ $(function() {
         {% for timer in clock.remaining_ms %}
         <tr>
           <td class="player-name" data-player-position="{{ loop.index0 }}">
-            <span>{{ clock.player_names[loop.index0] }}</span>
+            <span title="Click to edit, press enter when done">{{ clock.player_names[loop.index0] }}</span>
             <input type="text" value="{{ clock.player_names[loop.index0] }}">
           </td>
           <td class="timer">--:--:--</td>
