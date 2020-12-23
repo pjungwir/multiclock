@@ -12,6 +12,8 @@ you just have to work that out yourself and make sure to only hit your own butto
 
 # Database Schema
 
+(There isn't a database yet....)
+
 ```
 clocks
 ------
@@ -68,3 +70,9 @@ It could just write out to a log file so I can see what's happening.
 Of course then I also need a mapping from `sharing_codes` to clocks,
 but that doesn't seem too hard.
 
+# TODO
+
+- Store clocks in the database so they are still there after you restart the server.
+- Add an nginx file so you don't have to run websockets on 9001.
+- More configuration for dev vs production.
+- Tests.

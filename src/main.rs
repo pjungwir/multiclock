@@ -4,6 +4,7 @@
 #[macro_use] extern crate serde_derive;
 extern crate serde_json;
 extern crate rocket_contrib;
+extern crate hashids;
 
 use std::time::{Duration, SystemTime};
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,7 @@ use rocket_contrib::templates::{Template};
 use tungstenite::{Message};
 use tungstenite::server::{accept_hdr};
 use tungstenite::handshake::server::{Request, Response};
+use hashids::HashIds;
 
 #[derive(Debug)]
 struct PlayerCount(u32);
@@ -79,6 +81,7 @@ struct RunningClock {
 struct ClockList {
   // TODO: Use a single-member tuple with deref instead?:
   clocks: Arc<Mutex<Vec<RunningClock>>>,
+  hashids: HashIds,
 }
 
 #[derive(Serialize)]
@@ -93,9 +96,9 @@ fn index() -> Template {
 }
 
 #[post("/clocks", data = "<params>")]
-fn create(clocks: State<ClockList>, params: Form<Clock>) -> Redirect {
-  let mut clocks = clocks.clocks.lock().unwrap();
-  let code = clocks.len().to_string();  // TODO: Generate a nicer code
+fn create(state: State<ClockList>, params: Form<Clock>) -> Redirect {
+  let mut clocks = state.clocks.lock().unwrap();
+  let code = state.hashids.encode(&[clocks.len() as u64]);
   let clock = RunningClock {
     code: code.clone(),
     started: false,
@@ -110,28 +113,30 @@ fn create(clocks: State<ClockList>, params: Form<Clock>) -> Redirect {
 }
 
 #[post("/clocks/<code>/hit")]
-fn hit(clocks: State<ClockList>, code: String) -> Json<RunningClock> {
-  let mut clocks = clocks.clocks.lock().unwrap();
-  let mut clock = &mut clocks[code.parse::<usize>().unwrap()];
-  if clock.started {
-    if !clock.finished {
-      let t = SystemTime::now();
-      // Just fail if time went backwards:
-      let elapsed = t.duration_since(clock.started_at).unwrap();
-      if clock.remaining_ms[clock.current_player] > elapsed.as_millis() as u64 {
-        clock.remaining_ms[clock.current_player] -= elapsed.as_millis() as u64;
-        clock.started_at = t;
-        clock.current_player = (clock.current_player + 1) % clock.remaining_ms.len();
-      } else {
-        clock.remaining_ms[clock.current_player] = 0;
-        clock.finished = true;
+fn hit(state: State<ClockList>, code: String) -> Option<Json<RunningClock>> {
+  let mut clocks = state.clocks.lock().unwrap();
+  let pos = state.hashids.decode(&code).unwrap()[0];
+  clocks.get_mut(pos as usize).map(|clock| {
+    if clock.started {
+      if !clock.finished {
+        let t = SystemTime::now();
+        // Just fail if time went backwards:
+        let elapsed = t.duration_since(clock.started_at).unwrap();
+        if clock.remaining_ms[clock.current_player] > elapsed.as_millis() as u64 {
+          clock.remaining_ms[clock.current_player] -= elapsed.as_millis() as u64;
+          clock.started_at = t;
+          clock.current_player = (clock.current_player + 1) % clock.remaining_ms.len();
+        } else {
+          clock.remaining_ms[clock.current_player] = 0;
+          clock.finished = true;
+        }
       }
+    } else {
+      clock.started = true;
+      clock.started_at = SystemTime::now();
     }
-  } else {
-    clock.started = true;
-    clock.started_at = SystemTime::now();
-  }
-  Json(clock.clone())
+    Json(clock.clone())
+  })
 }
 
 #[derive(Debug, FromForm)]
@@ -141,11 +146,13 @@ struct Rename {
 }
 
 #[post("/clocks/<code>/names", data="<params>")]
-fn rename(clocks: State<ClockList>, code: String, params: Form<Rename>) -> Json<RunningClock> {
-  let mut clocks = clocks.clocks.lock().unwrap();
-  let clock = &mut clocks[code.parse::<usize>().unwrap()];
-  clock.player_names[params.position] = params.name.clone();
-  Json(clock.clone())
+fn rename(state: State<ClockList>, code: String, params: Form<Rename>) -> Option<Json<RunningClock>> {
+  let mut clocks = state.clocks.lock().unwrap();
+  let pos = state.hashids.decode(&code).unwrap()[0];
+  clocks.get_mut(pos as usize).map(|clock| {
+    clock.player_names[params.position] = params.name.clone();
+    Json(clock.clone())
+  })
 }
 
 #[derive(Serialize)]
@@ -154,11 +161,13 @@ struct ClockContext<'a> {
 }
 
 #[get("/clocks/<code>")]
-fn clock(clocks: State<ClockList>, code: String) -> Template {
-  let clocks = clocks.clocks.lock().unwrap();
-  let clock = &clocks[code.parse::<usize>().unwrap()];
-  let context = ClockContext { clock: clock };  // TODO: lookup the clock and fill in the rest of the context
-  Template::render("clocks/show", &context)
+fn clock(state: State<ClockList>, code: String) -> Option<Template> {
+  let clocks = state.clocks.lock().unwrap();
+  let pos = state.hashids.decode(&code).unwrap()[0];
+  clocks.get(pos as usize).map(|clock| {
+    let context = ClockContext { clock: clock };  // TODO: lookup the clock and fill in the rest of the context
+    Template::render("clocks/show", &context)
+  })
 }
 
 fn clock_as_json(clock: &RunningClock) -> String {
@@ -187,9 +196,9 @@ fn clock_as_json(clock: &RunningClock) -> String {
   }).unwrap()
 }
 
-fn current_clock(db: Arc<Mutex<Vec<RunningClock>>>, code: &str) -> String {
-  let pos = code.parse::<usize>().unwrap();
-  let cl = &db.lock().unwrap()[pos];
+fn current_clock(hashids: &HashIds, db: Arc<Mutex<Vec<RunningClock>>>, code: &str) -> String {
+  let pos = hashids.decode(&code).unwrap()[0];
+  let cl = &db.lock().unwrap()[pos as usize];
   clock_as_json(cl)
 }
 
@@ -205,11 +214,14 @@ fn extract_code_from_path(path: &str) -> Option<&str> {
 fn main() {
     let db = Arc::new(Mutex::new(vec![]));
     let db2 = db.clone();
+    let hashids = HashIds::with_salt("use this to generate nicer ids");
+    let hashids2 = hashids.clone();
 
     let ws_server = TcpListener::bind("127.0.0.1:9001").unwrap();
     spawn(move || {
         for stream in ws_server.incoming() {
             let db3 = db2.clone();
+            let hashids3 = hashids2.clone();
             spawn(move || {
                 let mut path: String = "".to_string();
                 let mut ws = accept_hdr(stream.unwrap(), |req: &Request, resp: Response| {
@@ -219,7 +231,7 @@ fn main() {
                 // TODO: Log the path and the incoming IP
                 println!("Got a ws connection to {}", path);
                 loop {
-                    let cl = current_clock(db3.clone(), extract_code_from_path(&path).unwrap());
+                    let cl = current_clock(&hashids3.clone(), db3.clone(), extract_code_from_path(&path).unwrap());
                     ws.write_message(Message::Text(cl)).unwrap();
                     sleep(Duration::from_millis(500));
                 }
@@ -230,6 +242,9 @@ fn main() {
     rocket::ignite().
         mount("/", routes![index, create, clock, hit, rename]).
         attach(Template::fairing()).
-        manage(ClockList { clocks: db }).
+        manage(ClockList {
+          clocks: db,
+          hashids: hashids,
+        }).
         launch();
 }

@@ -16,6 +16,7 @@ tera = "1"
 tungstenite = "0.11"
 regex = "1.4"
 lazy_static = "1.4"
+hashids = { git = "https://github.com/Dr-Emann/hashids_rust", branch = "master" }
 
 [dependencies.rocket_contrib]
 default-features = false
