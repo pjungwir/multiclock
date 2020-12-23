@@ -24,7 +24,14 @@ $(function() {
 
   var handle_update = function(clock) {
     console.log("handle_update", clock);
-    $.each($clocks.find("td"), function(i, td) {
+    $.each($clocks.find("td.player-name"), function(i, td) {
+      var $td = $(td);
+      if (!$td.hasClass('being-edited')) {
+        $(td).find('span').html(clock.player_names[i]);
+        $(td).find('input').val(clock.player_names[i]);
+      }
+    });
+    $.each($clocks.find("td.timer"), function(i, td) {
       if (clock.finished && i == clock.current_player) {
         $(td).html("FLAG!!");
         $button.attr('disabled', true);
@@ -61,8 +68,52 @@ $(function() {
     console.log(cl);
     handle_update(cl);
   };
+
+  $clocks.find('td.player-name').on('click', function(event) {
+    $(this).addClass('being-edited');
+    $(this).find('input').focus();
+  });
+  $clocks.find('td.player-name input').on('keypress', function(event) {
+    var $input = $(this);
+    var $td = $input.closest('td');
+    if (event.which == 13) {
+      $td.removeClass('being-edited');
+      $.ajax({
+        method: 'POST',
+        url: '/clocks/{{ clock.code }}/names',
+        data: {
+          position: $td.data('player-position'),
+          name: $input.val(),
+        },
+        success: function(data, status, jqxhr) {
+          handle_update(data);
+        },
+      });
+    }
+  });
 });
 </script>
+<style>
+  #clocks td {
+    padding: 0.3em 0.8em;
+  }
+  #clocks td.active {
+    color: white;
+    background: #333333;
+  }
+  #clocks td.player-name span {
+    display: block;
+  }
+  #clocks td.player-name input {
+    display: none;
+  }
+  #clocks td.player-name.being-edited span {
+    display: none;
+  }
+  #clocks td.player-name.being-edited input {
+    display: block;
+  }
+</style>
 {% endblock head %}
 
 {% block content %}
@@ -71,7 +122,11 @@ $(function() {
     <table id="clocks">
         {% for timer in clock.remaining_ms %}
         <tr>
-          <td>--:--:--</td>
+          <td class="player-name" data-player-position="{{ loop.index0 }}">
+            <span>{{ clock.player_names[loop.index0] }}</span>
+            <input type="text" value="{{ clock.player_names[loop.index0] }}">
+          </td>
+          <td class="timer">--:--:--</td>
         </tr>
         {% endfor %}
     </table>

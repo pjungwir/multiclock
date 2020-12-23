@@ -72,6 +72,7 @@ struct RunningClock {
   started: bool,
   finished: bool,
   remaining_ms: Vec<u64>,
+  player_names: Vec<String>,
   current_player: usize,
   started_at: SystemTime,
 }
@@ -102,6 +103,7 @@ fn create(clocks: State<ClockList>, params: Form<Clock>) -> Redirect {
     started: false,
     finished: false,
     remaining_ms: vec![*params.allowed_seconds as u64 * 1000; *params.player_count as usize],
+    player_names: (0..*params.player_count).map(|i| format!("Player {}", i).to_string()).collect(),
     current_player: 0,
     started_at: SystemTime::now(), // not really, but it's nice not using an Option here
   };
@@ -131,6 +133,20 @@ fn hit(clocks: State<ClockList>, code: String) -> Json<RunningClock> {
     clock.started = true;
     clock.started_at = SystemTime::now();
   }
+  Json(clock.clone())
+}
+
+#[derive(Debug, FromForm)]
+struct Rename {
+  position: usize,
+  name: String,
+}
+
+#[post("/clocks/<code>/names", data="<params>")]
+fn rename(clocks: State<ClockList>, code: String, params: Form<Rename>) -> Json<RunningClock> {
+  let mut clocks = clocks.clocks.lock().unwrap();
+  let mut clock = &mut clocks[code.parse::<usize>().unwrap()];
+  clock.player_names[params.position] = params.name.clone();
   Json(clock.clone())
 }
 
@@ -185,6 +201,7 @@ fn clock_as_json(clock: &RunningClock) -> String {
     started: clock.started,
     finished: finished,
     remaining_ms: mss,
+    player_names: clock.player_names.clone(),
     current_player: clock.current_player,
     started_at: clock.started_at,
   }).unwrap()
@@ -236,7 +253,7 @@ fn main() {
     });
 
     rocket::ignite().
-        mount("/", routes![index, create, clock, hit]).
+        mount("/", routes![index, create, clock, hit, rename]).
         attach(template_fairing).
         manage(ClockList { clocks: db }).
         launch();
