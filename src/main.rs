@@ -204,7 +204,7 @@ fn current_clock(hashids: &HashIds, db: Arc<Mutex<Vec<RunningClock>>>, code: &st
 
 fn extract_code_from_path(path: &str) -> Option<&str> {
     lazy_static! {
-        static ref CLOCK_PATH: Regex = Regex::new(r"/clocks/(.+)").unwrap();
+        static ref CLOCK_PATH: Regex = Regex::new(r"/websocket/clocks/(.+)").unwrap();
     }
     CLOCK_PATH.captures(path).and_then(|caps| {
         caps.get(1).map(|code| code.as_str())

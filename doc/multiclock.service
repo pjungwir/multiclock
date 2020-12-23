@@ -1,0 +1,12 @@
+[Unit]
+Description=multiclock
+After=network-online.target
+
+[Service]
+User=multiclock
+Group=multiclock
+WorkingDirectory=/home/multiclock
+Environment="ROCKET_ADDRESS=127.0.0.1"
+Environment="ROCKET_PORT=8000"
+Environment="ROCKET_TEMPLATE_DIR=/home/multiclock/templates"
+ExecStart=/home/multiclock/bin/multiclock
