@@ -24,19 +24,25 @@ $(function() {
 
   var handle_update = function(clock) {
     console.log("handle_update", clock);
-    $.each($clocks.find("td.player-name"), function(i, td) {
-      var $td = $(td);
+    $.each($clocks.find("tr"), function(i, tr) {
+      var $tr = $(tr);
+      var $td;
+      $tr.toggleClass('active', i == clock.current_player);
+
+      // player name:
+      $td = $tr.find('td.player-name');
       if (!$td.hasClass('being-edited')) {
-        $(td).find('span').html(clock.player_names[i]);
-        $(td).find('input').val(clock.player_names[i]);
+        $td.find('span').html(clock.player_names[i]);
+        $td.find('input').val(clock.player_names[i]);
       }
-    });
-    $.each($clocks.find("td.timer"), function(i, td) {
+
+      // countdown:
+      $td = $tr.find("td.timer");
       if (clock.finished && i == clock.current_player) {
-        $(td).html("FLAG!!");
+        $td.html("FLAG!!");
         $button.attr('disabled', true);
       } else {
-        $(td).html(ms_to_timer(clock.remaining_ms[i]));
+        $td.html(ms_to_timer(clock.remaining_ms[i]));
       }
     });
 
@@ -97,7 +103,7 @@ $(function() {
   #clocks td {
     padding: 0.3em 0.8em;
   }
-  #clocks td.active {
+  #clocks tr.active {
     color: white;
     background: #333333;
   }
