@@ -549,7 +549,7 @@ checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 [[package]]
 name = "hashids"
 version = "1.0.0"
-source = "git+https://github.com/Dr-Emann/hashids_rust?branch=master#2436f7508f282cf8acb3e233fed8b5b76ebb4d78"
+source = "git+https://github.com/pjungwir/hashids_rust?branch=master#2436f7508f282cf8acb3e233fed8b5b76ebb4d78"
 
 [[package]]
 name = "hermit-abi"
