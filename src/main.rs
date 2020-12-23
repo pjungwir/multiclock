@@ -5,9 +5,8 @@
 extern crate serde_json;
 extern crate rocket_contrib;
 
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::net::TcpListener;
 use std::thread::{spawn, sleep};
 use regex::Regex;
@@ -18,10 +17,9 @@ use rocket::request::Form;
 use rocket::request::FromFormValue;
 use rocket::response::Redirect;
 use rocket_contrib::json::Json;
-use rocket_contrib::templates::{Template, Engines};
-use rocket_contrib::templates::tera::{self, Value, to_value};
+use rocket_contrib::templates::{Template};
 use tungstenite::{Message};
-use tungstenite::server::{accept, accept_hdr};
+use tungstenite::server::{accept_hdr};
 use tungstenite::handshake::server::{Request, Response};
 
 #[derive(Debug)]
@@ -145,7 +143,7 @@ struct Rename {
 #[post("/clocks/<code>/names", data="<params>")]
 fn rename(clocks: State<ClockList>, code: String, params: Form<Rename>) -> Json<RunningClock> {
   let mut clocks = clocks.clocks.lock().unwrap();
-  let mut clock = &mut clocks[code.parse::<usize>().unwrap()];
+  let clock = &mut clocks[code.parse::<usize>().unwrap()];
   clock.player_names[params.position] = params.name.clone();
   Json(clock.clone())
 }
@@ -153,24 +151,6 @@ fn rename(clocks: State<ClockList>, code: String, params: Form<Rename>) -> Json<
 #[derive(Serialize)]
 struct ClockContext<'a> {
   clock: &'a RunningClock,
-}
-
-fn countdown(duration: Value, _params: HashMap<String, Value>) -> tera::Result<Value> {
-  match duration {
-    Value::Number(d) => {
-      let all_secs = d.as_u64().unwrap() / 1000;
-      let minutes = all_secs / 60;
-      let hours = minutes / 60;
-      let minutes = minutes - 60*hours;
-      let secs = all_secs - 60*minutes;
-      to_value(format!("{}:{}:{}", hours, minutes, secs)).map_err(|e|
-        tera::Error::with_chain(e, "failed to convert to Value")
-      )
-    },
-    _ => Err(tera::Error::from_kind(tera::ErrorKind::Msg(
-      format!("Filter `countdown` received a {:?} but expected a Number", duration)
-    )))
-  }
 }
 
 #[get("/clocks/<code>")]
@@ -239,7 +219,6 @@ fn main() {
                 // TODO: Log the path and the incoming IP
                 println!("Got a ws connection to {}", path);
                 loop {
-                    // TODO: parse the code from the path:
                     let cl = current_clock(db3.clone(), extract_code_from_path(&path).unwrap());
                     ws.write_message(Message::Text(cl)).unwrap();
                     sleep(Duration::from_millis(500));
@@ -248,13 +227,9 @@ fn main() {
         }
     });
 
-    let template_fairing = Template::custom(|engines: &mut Engines| {
-        engines.tera.register_filter("countdown", countdown);
-    });
-
     rocket::ignite().
         mount("/", routes![index, create, clock, hit, rename]).
-        attach(template_fairing).
+        attach(Template::fairing()).
         manage(ClockList { clocks: db }).
         launch();
 }
