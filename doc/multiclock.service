@@ -1,6 +1,10 @@
 [Unit]
 Description=multiclock
 After=network-online.target
+Wants=network-online.target systemd-networkd-wait-online.service
+# If it fails to start twice within one minute, give up:
+StartLimitBurst=2
+StartLimitIntervalSec=60s
 
 [Service]
 User=multiclock
@@ -10,3 +14,9 @@ Environment="ROCKET_ADDRESS=127.0.0.1"
 Environment="ROCKET_PORT=8000"
 Environment="ROCKET_TEMPLATE_DIR=/home/multiclock/templates"
 ExecStart=/home/multiclock/bin/multiclock
+# This seems to be necessary, because it dies a lot (but I don't know why)
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
